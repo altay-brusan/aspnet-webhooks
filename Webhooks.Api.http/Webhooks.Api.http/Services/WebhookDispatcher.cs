@@ -1,22 +1,41 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Conventions;
+using System.Diagnostics;
+using System.Threading.Channels;
 using Webhooks.Api.http.Data;
 using Webhooks.Api.http.Models;
+using Webhooks.Api.http.OpenTelemetry;
 
 
 namespace Webhooks.Api.http.Services
 {
+
+
     internal sealed class WebhookDispatcher
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly WebhooksDbContext _dbContext;
+        private readonly Channel<WebhookDispatch> _webhookChannel;
 
-        public WebhookDispatcher(IHttpClientFactory httpClientFactory, WebhooksDbContext dbContext)
+        public WebhookDispatcher(
+            Channel<WebhookDispatch> webhooksChannel,
+            IHttpClientFactory httpClientFactory, 
+            WebhooksDbContext dbContext)
         {
+            _webhookChannel = webhooksChannel;
             _httpClientFactory = httpClientFactory;
             _dbContext = dbContext;
         }
 
-        public async Task DispatchAsync<T>(string eventType, T data, CancellationToken cancellationToken = default)
+        public async Task DispatchAsync<T>(string eventType, T data) where T : notnull
+        {
+            using Activity? activity = DiagnosticConfig.source.StartActivity($"{ eventType} dispatch webhook");
+            activity?.AddTag("event.type", eventType);
+
+            await _webhookChannel.Writer.WriteAsync(new WebhookDispatch(eventType, data, activity?.Id));
+        }
+
+        public async Task ProcessAsync<T>(string eventType, T data, CancellationToken cancellationToken = default)
         {
             var subscriptions = await _dbContext.WebhookSubscriptions.ToListAsync(cancellationToken);
             foreach (var subscription in subscriptions)
