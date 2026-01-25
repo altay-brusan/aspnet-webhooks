@@ -15,9 +15,12 @@ namespace Webhooks.Api.http.Services
             {
                 using Activity? activity =
                     DiagnosticConfig.source.StartActivity($"{webhookDispatch.EventType} process webhook", ActivityKind.Internal, parentId: webhookDispatch.ParentActivityId);
+
                 using IServiceScope serviceScope = serviceScopeFactory.CreateScope();
+
                 var dispatcher = serviceScope.ServiceProvider.GetRequiredService<WebhookDispatcher>();
-                await dispatcher.DispatchAsync(webhookDispatch.EventType, webhookDispatch.Data);
+
+                await dispatcher.ProcessAsync(webhookDispatch.EventType, webhookDispatch.Data);
             }
         }
     }
