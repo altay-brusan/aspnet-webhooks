@@ -1,4 +1,6 @@
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using System.Threading.Channels;
 using Webhooks.Api.http.Data;
 using Webhooks.Api.http.Extentions;
@@ -22,16 +24,39 @@ builder.Services.AddScoped<WebhookDispatcher>();  // scoped because it depends o
 builder.Services.AddDbContext<WebhooksDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("webhooks")));
 
-builder.Services.AddHostedService<WebhookProcessor>();
+// move to rabbitmq
+//builder.Services.AddHostedService<WebhookProcessor>();
 
-builder.Services.AddOpenTelemetry().WithTracing(tracing => tracing.AddSource(DiagnosticConfig.source.Name));
+//builder.Services.AddSingleton(_ => {
+//    return Channel.CreateBounded<WebhookDispatched>(new BoundedChannelOptions(100)
+//    {
+//        FullMode = BoundedChannelFullMode.Wait
+//    });
+//});
 
-builder.Services.AddSingleton(_ => { 
- return Channel.CreateBounded<WebhookDispatch>(new BoundedChannelOptions(100)
- {
-     FullMode = BoundedChannelFullMode.Wait
- });
+builder.Services.AddMassTransit(busConfig =>
+{
+    busConfig.SetKebabCaseEndpointNameFormatter();
+    busConfig.AddConsumer<WebhookDispatchedConsumer>();
+    busConfig.AddConsumer<WebhookTriggerConsumer>();
+    busConfig.UsingRabbitMq((context, cfg) =>
+    {
+        // the name should be same as aspire orcestrator
+        cfg.Host(builder.Configuration.GetConnectionString("rabbitmq")); 
+        cfg.ConfigureEndpoints(context);
+    });
 });
+
+builder.Services
+    .AddOpenTelemetry()
+    .WithTracing(
+    tracing => 
+    {
+        tracing.AddSource(DiagnosticConfig.source.Name)
+               .AddSource(MassTransit.Logging.DiagnosticHeaders.DefaultListenerName)
+               .AddNpgsql();
+    });
+
 
 var app = builder.Build();
 
