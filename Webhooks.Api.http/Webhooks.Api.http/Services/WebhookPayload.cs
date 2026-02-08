@@ -2,10 +2,10 @@
 {
     public sealed class WebhookPayload
     {
-        public Guid Id { get; init; }
-        public string EventType { get; init; }
-        public Guid SubscriptionId { get; init; }
-        public DateTime Timestamp { get; init; }
-        public object Data { get; init; }
+        public required Guid Id { get; init; }
+        public required string EventType { get; init; }
+        public required Guid SubscriptionId { get; init; }
+        public required DateTime Timestamp { get; init; }
+        public required object Data { get; init; }
     }
 }

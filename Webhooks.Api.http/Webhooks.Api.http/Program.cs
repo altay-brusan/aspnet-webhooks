@@ -1,9 +1,8 @@
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using System.Threading.Channels;
 using Webhooks.Api.http.Data;
-using Webhooks.Api.http.Extentions;
+using Webhooks.Api.http.Extensions;
 using Webhooks.Api.http.Models;
 using Webhooks.Api.http.OpenTelemetry;
 using Webhooks.Api.http.Services;
@@ -24,16 +23,6 @@ builder.Services.AddScoped<WebhookDispatcher>();  // scoped because it depends o
 builder.Services.AddDbContext<WebhooksDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("webhooks")));
 
-// move to rabbitmq
-//builder.Services.AddHostedService<WebhookProcessor>();
-
-//builder.Services.AddSingleton(_ => {
-//    return Channel.CreateBounded<WebhookDispatched>(new BoundedChannelOptions(100)
-//    {
-//        FullMode = BoundedChannelFullMode.Wait
-//    });
-//});
-
 builder.Services.AddMassTransit(busConfig =>
 {
     busConfig.SetKebabCaseEndpointNameFormatter();
@@ -41,8 +30,11 @@ builder.Services.AddMassTransit(busConfig =>
     busConfig.AddConsumer<WebhookTriggerConsumer>();
     busConfig.UsingRabbitMq((context, cfg) =>
     {
-        // the name should be same as aspire orcestrator
-        cfg.Host(builder.Configuration.GetConnectionString("rabbitmq")); 
+        cfg.Host(builder.Configuration.GetConnectionString("rabbitmq"));
+        cfg.UseMessageRetry(r => r.Intervals(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(15)));
         cfg.ConfigureEndpoints(context);
     });
 });
@@ -74,25 +66,40 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.MapPost("webhooks/subscription", (CreateWebhookRequest request, WebhooksDbContext dbContext) =>
+app.MapPost("webhooks/subscription", async (CreateWebhookRequest request, WebhooksDbContext dbContext) =>
 {
+    if (string.IsNullOrWhiteSpace(request.EventType))
+        return Results.BadRequest("EventType is required.");
+
+    if (!Uri.TryCreate(request.WebhookUrl, UriKind.Absolute, out var uri)
+        || (uri.Scheme != "http" && uri.Scheme != "https"))
+        return Results.BadRequest("WebhookUrl must be a valid absolute HTTP(S) URL.");
+
     WebhookSubscription subscription = new(
         Guid.NewGuid(),
         request.EventType,
         request.WebhookUrl,
         DateTime.UtcNow);
     dbContext.WebhookSubscriptions.Add(subscription);
+    await dbContext.SaveChangesAsync();
     return Results.Ok(subscription);
 });
 
 app.MapPost("/orders", async (CreateOrderRequest request, WebhooksDbContext dbContext, WebhookDispatcher dispatcher) =>
 {
+    if (string.IsNullOrWhiteSpace(request.CustomerName))
+        return Results.BadRequest("CustomerName is required.");
+
+    if (request.Amount <= 0)
+        return Results.BadRequest("Amount must be greater than zero.");
+
     var order = new Order(
         Guid.NewGuid(),
         request.CustomerName,
         request.Amount,
         DateTime.UtcNow);
     dbContext.Add(order);
+    await dbContext.SaveChangesAsync();
     await dispatcher.DispatchAsync("order.created", order);
     return Results.Ok(order);
 }).WithTags("Orders");
@@ -102,8 +109,3 @@ app.MapGet("/orders", async (WebhooksDbContext dbContext) => {
 }).WithTags("Orders");
 
 app.Run();
-
-internal record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

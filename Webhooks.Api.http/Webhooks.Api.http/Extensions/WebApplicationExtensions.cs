@@ -1,6 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 
-namespace Webhooks.Api.http.Extentions
+namespace Webhooks.Api.http.Extensions
 {
     public static class WebApplicationExtensions
     {

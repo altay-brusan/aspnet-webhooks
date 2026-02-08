@@ -7,7 +7,7 @@ var database = builder.AddPostgres("postgres")
                       .AddDatabase("webhooks");
 
 var queue = builder.AddRabbitMQ("rabbitmq")
-                   .WithDataVolume("redis-data")
+                   .WithDataVolume("rabbitmq-data")
                    .WithManagementPlugin();
 
 builder.AddProject<Projects.Webhooks_Api_http>("webhooks-api-http")
