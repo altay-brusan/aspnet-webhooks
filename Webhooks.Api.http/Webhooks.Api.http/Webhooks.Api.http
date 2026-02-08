@@ -20,7 +20,7 @@ Content-Type:application/json
 
 {
   "eventType":"order.created",
-  "webhookUrl":"https://webhook.site/3daac562-e733-401a-a523-5cf2be7b7524"
+  "webhookUrl":"https://webhook.site/5e6b55ed-d4ba-4743-b61b-8f4b4831279a"
 }
 
 
